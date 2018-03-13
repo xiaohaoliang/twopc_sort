@@ -14,7 +14,7 @@ var (
 
 	token int64
 	
-	randGap int64 = 10
+	maxGap int64 = 10
 	sleepInterval int64 = 5
 
 	wg sync.WaitGroup
@@ -57,7 +57,7 @@ func main() {
 func generateDatas(index int) {
 	for i := 0; i < maxMessageNums; i++ {
 		dataPrepare := data{
-			prepare: atomic.AddInt64(&token, rand.Int63()%randGap+1),
+			prepare: incrementToken(),
 		}
 		sleep()
 		dataStreaming[index] <- dataPrepare
@@ -66,11 +66,15 @@ func generateDatas(index int) {
 
 		dataCommit := data{
 			prepare: dataPrepare.prepare,
-			commit:  atomic.AddInt64(&token, 1),
+			commit:  incrementToken(),
 		}
 		sleep()
 		dataStreaming[index] <- dataCommit
 	}
+}
+
+func incrementToken() int64 {
+	return atomic.AddInt64(&token, rand.Int63()%maxGap+1)
 }
 
 func sleep() {
@@ -79,9 +83,8 @@ func sleep() {
 }
 
 /*
- * 1 assume dataStreamings are endless
- * 2 sort all dataCommits from dataStreaming by commit ascending in real time
- * 3 output sorted in real time
+ * 1 assume dataStreamings are endless => we have infinitely many dataCommits
+ * 2 sort dataCommits that from multiple dataStreaming by commit ascending and output them in the fastest way you can think
  */
 func sort() {
 
