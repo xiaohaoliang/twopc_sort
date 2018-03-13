@@ -13,6 +13,9 @@ var (
 	dataStreaming  []chan data
 
 	token int64
+	
+	randGap int64 = 10
+	sleepInterval int64 = 5
 
 	wg sync.WaitGroup
 )
@@ -54,7 +57,7 @@ func main() {
 func generateDatas(index int) {
 	for i := 0; i < maxMessageNums; i++ {
 		dataPrepare := data{
-			prepare: atomic.AddInt64(&token, 1),
+			prepare: atomic.AddInt64(&token, rand.Int63()%randGap+1),
 		}
 		sleep()
 		dataStreaming[index] <- dataPrepare
@@ -71,7 +74,7 @@ func generateDatas(index int) {
 }
 
 func sleep() {
-	waitTime := time.Duration(rand.Int63()%2 + 1)
+	waitTime := time.Duration(rand.Int63()%sleepInterval + 1)
 	time.Sleep(waitTime * time.Second)
 }
 
