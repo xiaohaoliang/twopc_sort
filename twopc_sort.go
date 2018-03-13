@@ -71,7 +71,7 @@ func sort() {
 /* 
  * generate prepare and commit datas.
  * assume max difference of send time between prepare and commit data is 2*maxSleepInterval(millisecond),
- * thus u would't think some extreme cases.
+ * thus u would't think some extreme cases about thread starvation.
 */
 func generateDatas(index int) {
 	for i := 0; i < messageNums; i++ { 
