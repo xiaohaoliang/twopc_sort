@@ -27,6 +27,7 @@ type data struct {
 	kind     string
 	prepare int64
 	commit  int64
+	sendTime time.Time
 }
 
 func init() {
@@ -36,7 +37,10 @@ func init() {
 	}
 }
 
-/* please implement sort function */
+/* please implement sort function 
+ * u can add some auxiliary structures, variables and functions
+ * dont modify any definition
+ */
 func main() {
 	wg.Add(clientNums*2 + 1)
 	// genrateDatas and sort are parallel
@@ -74,23 +78,26 @@ func sort() {
  * thus u would't think some extreme cases about thread starvation.
 */
 func generateDatas(index int) {
-	for i := 0; i < messageNums; i++ { 
-		dataPrepare := data{
+	for i := 0; i < messageNums; i++ {
+		prepare :=  incrementToken()
+		sleep(maxSleepInterval)
+		
+		dataStreaming[index] <- data{
 			kind: "prepare",
-			prepare: incrementToken(),
+			prepare: prepare,
+			sendTime: time.Now(),
 		}
 		sleep(maxSleepInterval)
-		dataStreaming[index] <- dataPrepare
 
+		commit := incrementToken()
 		sleep(maxSleepInterval)
-
-		dataCommit := data{
+		
+		dataStreaming[index] <- data{
 			kind: "commit",
-			prepare: dataPrepare.prepare,
-			commit:  incrementToken(),
+			prepare: prepare,
+			commit: commit,
+			sendTime: time.Now(),
 		}
-		sleep(maxSleepInterval)
-		dataStreaming[index] <- dataCommit
 		sleep(10 * maxSleepInterval)
 	}
 }
