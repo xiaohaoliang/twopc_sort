@@ -68,8 +68,9 @@ func sort() {
 
 }
 
+// assume max difference of send time between prepare and commit data is 2*maxSleepInterval
 func generateDatas(index int) {
-	for i := 0; i < messageNums; i++ {
+	for i := 0; i < messageNums; i++ { 
 		dataPrepare := data{
 			kind: "prepare",
 			prepare: incrementToken(),
