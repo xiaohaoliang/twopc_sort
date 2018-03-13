@@ -68,25 +68,30 @@ func sort() {
 
 }
 
-// assume max difference of send time between prepare and commit data is 2*maxSleepInterval
+/* 
+ * generate prepare and commit datas.
+ * assume max difference of send time between prepare and commit data is 2*maxSleepInterval(millisecond),
+ * thus u would't think some extreme cases.
+*/
 func generateDatas(index int) {
 	for i := 0; i < messageNums; i++ { 
 		dataPrepare := data{
 			kind: "prepare",
 			prepare: incrementToken(),
 		}
-		sleep()
+		sleep(maxSleepInterval)
 		dataStreaming[index] <- dataPrepare
 
-		sleep()
+		sleep(maxSleepInterval)
 
 		dataCommit := data{
 			kind: "commit",
 			prepare: dataPrepare.prepare,
 			commit:  incrementToken(),
 		}
-		sleep()
+		sleep(maxSleepInterval)
 		dataStreaming[index] <- dataCommit
+		sleep(10 * maxSleepInterval)
 	}
 }
 
@@ -94,8 +99,8 @@ func incrementToken() int64 {
 	return atomic.AddInt64(&token, rand.Int63()%maxGap+1)
 }
 
-func sleep() {
-	interval := atomic.AddInt64(&step, 3)%maxSleepInterval + 1
+func sleep(factor int64) {
+	interval := atomic.AddInt64(&step, 3)%factor + 1
 	waitTime := time.Duration(rand.Int63()%interval)
-	time.Sleep(waitTime * time.Second)
+	time.Sleep(waitTime * time.Millisecond)
 }
