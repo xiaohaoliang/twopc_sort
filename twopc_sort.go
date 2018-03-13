@@ -8,13 +8,16 @@ import (
 )
 
 var (
-	maxClientNums  = 2
-	maxMessageNums = 20
+	// number of client
+	clientNums  = 2
+	// number of messages, simpify program implementation
+	messageNums = 20
 	dataStreaming  []chan data
 
 	token int64
 	step int64
 	
+	maxSleepInterval int64 = 5
 	maxGap int64 = 10
 
 	wg sync.WaitGroup
@@ -27,17 +30,17 @@ type data struct {
 }
 
 func init() {
-	dataStreaming = make([]chan data, maxClientNums)
-	for i := 0; i < maxClientNums; i++ {
-		dataStreaming[i] = make(chan data, maxMessageNums)
+	dataStreaming = make([]chan data, clientNums)
+	for i := 0; i < clientNums; i++ {
+		dataStreaming[i] = make(chan data, messageNums)
 	}
 }
 
 /* please implement sort function */
 func main() {
-	wg.Add(maxClientNums*2 + 1)
+	wg.Add(clientNums*2 + 1)
 	// genrateDatas and sort are parallel
-	for i := 0; i < maxClientNums; i++ {
+	for i := 0; i < clientNums; i++ {
 		go func(index int) {
 			defer wg.Done()
 			generateDatas(index)
@@ -66,7 +69,7 @@ func sort() {
 }
 
 func generateDatas(index int) {
-	for i := 0; i < maxMessageNums; i++ {
+	for i := 0; i < messageNums; i++ {
 		dataPrepare := data{
 			kind: "prepare",
 			prepare: incrementToken(),
@@ -91,7 +94,7 @@ func incrementToken() int64 {
 }
 
 func sleep() {
-	interval := atomic.AddInt64(&step, 3)%5 + 1
-	waitTime := time.Duration(rand.Int63()%interval + 1)
+	interval := atomic.AddInt64(&step, 3)%maxSleepInterval + 1
+	waitTime := time.Duration(rand.Int63()%interval)
 	time.Sleep(waitTime * time.Second)
 }
