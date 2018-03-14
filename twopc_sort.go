@@ -9,24 +9,24 @@ import (
 
 var (
 	// number of client
-	clientNums  = 2
+	clientNums = 2
 	// number of messages, simpify program implementation
-	messageNums = 20
-	dataStreaming  []chan data
+	messageNums   = 20
+	dataStreaming []chan data
 
 	token int64
-	step int64
-	
+	step  int64
+
 	maxSleepInterval int64 = 5
-	maxGap int64 = 10
+	maxGap           int64 = 10
 
 	wg sync.WaitGroup
 )
 
 type data struct {
 	kind     string
-	prepare int64
-	commit  int64
+	prepare  int64
+	commit   int64
 	sendTime time.Time
 }
 
@@ -37,7 +37,7 @@ func init() {
 	}
 }
 
-/* 1. please implement sort code 
+/* 1. please implement sort code
  *    u can add some auxiliary structures, variables and functions
  *    dont modify any definition
  * 2. implement flow control for the sort code
@@ -66,37 +66,37 @@ func main() {
 /*
  * 1 assume dataStreamings are endless => we have infinitely many datas;
  * because it's a simulation program, it has a limited number of datas, but the assumption is not shoul be satisfied
- * 2 sort commit kind of datas that are from multiple dataStreamings by commit ascending 
+ * 2 sort commit kind of datas that are from multiple dataStreamings by commit ascending
  * and output them in the fastest way you can think
  */
 func sort() {
 
 }
 
-/* 
+/*
  * generate prepare and commit datas.
  * assume max difference of send time between prepare and commit data is 2*maxSleepInterval(millisecond),
  * thus u would't think some extreme cases about thread starvation.
-*/
+ */
 func generateDatas(index int) {
 	for i := 0; i < messageNums; i++ {
-		prepare :=  incrementToken()
+		prepare := incrementToken()
 		sleep(maxSleepInterval)
-		
+
 		dataStreaming[index] <- data{
-			kind: "prepare",
-			prepare: prepare,
+			kind:     "prepare",
+			prepare:  prepare,
 			sendTime: time.Now(),
 		}
 		sleep(maxSleepInterval)
 
 		commit := incrementToken()
 		sleep(maxSleepInterval)
-		
+
 		dataStreaming[index] <- data{
-			kind: "commit",
-			prepare: prepare,
-			commit: commit,
+			kind:     "commit",
+			prepare:  prepare,
+			commit:   commit,
 			sendTime: time.Now(),
 		}
 		sleep(10 * maxSleepInterval)
@@ -109,6 +109,6 @@ func incrementToken() int64 {
 
 func sleep(factor int64) {
 	interval := atomic.AddInt64(&step, 3)%factor + 1
-	waitTime := time.Duration(rand.Int63()%interval)
+	waitTime := time.Duration(rand.Int63() % interval)
 	time.Sleep(waitTime * time.Millisecond)
 }
