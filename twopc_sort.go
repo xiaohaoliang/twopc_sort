@@ -37,9 +37,10 @@ func init() {
 	}
 }
 
-/* please implement sort function 
- * u can add some auxiliary structures, variables and functions
- * dont modify any definition
+/* 1. please implement sort code 
+ *    u can add some auxiliary structures, variables and functions
+ *    dont modify any definition
+ * 2. implement flow control for the sort code
  */
 func main() {
 	wg.Add(clientNums*2 + 1)
