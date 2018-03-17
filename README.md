@@ -26,7 +26,14 @@ goroutine 循环逻辑
 分析code得到以下特征： 
 - 对于同一个channel里面的msg的sendTime总是递增的
 - sendTime大于1005ms的msg的commit 总是大于 sendTime=1000ms的msg的commit (方案一的排序窗口)
-- TODO 方案二	
+- 对于同一个channel里面的msg：
+	commit消息之后接收到的prepare消息对应的commit消息的commit， 一定大于前面的commit消息。(方案二的排序窗口)
+
+## 关于sort
+go的sort库的sort函数，在数据量较大时（大于12时），会选使用quickSort,当分割的深度恶化时，改用heapSort，数据量小于或等于12时，使用insertSort(比递归更快)。 俺就不重新写轮子了。
+
+## 关于flow control 
+使用了`golang.org/x/time/rate`的代码，令牌桶的算法，本来想直接用go的tick来构造一个简单的，但是高性能情况下性能会不好，毕竟要定时器频繁调用。该库的算法还没来得及看懂。TODO
 
 ## 方案一 
 使用了golang的sort库和rate库
@@ -36,5 +43,20 @@ goroutine 循环逻辑
 - 相邻两个块，归并输出(归并窗口为2个块)，当前面的块消耗完后，生成新的块，归并窗口后移，循环
 - 对每个chan排序输出的结果(chan)再归并输出为总排序结果
 
-### 问题：
-- 按照sendTime切块，每次浮点数计算比较消耗相对较大，以时间为切分单位时，切分力度可能会大 
+## 方案二   
+
+对于同一个chan的msg，msg的sendTime总是**递增的**。
+`Cx`:表示 x下标的commit类型的msg
+`Py`:表示 y下标的prepare类型的msg
+`Cx.sendTime < Py.sendTime`: 表示 x下标的commit类型的msg 比 y下标的prepare类型的msg先发送。
+`Cx.commit <= Cx.sendTime` 
+`Py.sendTime <= Cy.commit`
+可以得到`Cx.commit < Cy.commit`,即 commit消息之后接收到的prepare消息对应的commit消息的commit， 一定大于前面的commit消息。
+
+举例如下
+```
+p_1, p_3, c_1,p_2,c_2,c_3 ...
+```	
+比c_1的commit小的消息只可能是 c_3
+
+可以利用上面特性来确定比较窗口， 不用频繁比较time类型。TODO
