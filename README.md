@@ -33,7 +33,8 @@ goroutine 循环逻辑
 go的sort库的sort函数，在数据量较大时（大于12时），会选使用quickSort,当分割的深度恶化时，改用heapSort，数据量小于或等于12时，使用insertSort(比递归更快)。 俺就不重新写轮子了。
 
 ## 关于flow control 
-使用了`golang.org/x/time/rate`的代码，令牌桶的算法，本来想直接用go的tick来构造一个简单的，但是高性能情况下性能会不好，毕竟要定时器频繁调用。该库的算法还没来得及看懂。TODO
+本来使用了`golang.org/x/time/rate`的代码，令牌桶的算法，本来想直接用go的tick来构造一个简单的，但是高性能情况下性能会不好，毕竟要定时器频繁调用。     
+简单写了个`simpleLimiter`来替换原来的第三方库
 
 ## 方案一 
 使用了golang的sort库和rate库

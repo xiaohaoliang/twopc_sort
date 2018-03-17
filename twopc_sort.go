@@ -6,11 +6,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"context"
 	"fmt"
 	"sort"
-
-	"golang.org/x/time/rate"
 )
 
 var (
@@ -58,6 +55,60 @@ type dataSlice struct {
 	vector    []data
 	cur       int
 	nextData  data
+}
+
+type simpleLimiter struct {
+	rate float64
+
+	burst int
+
+	mu       sync.Mutex
+	tokens   float64
+	interval time.Duration
+	// last is the last time the limiter's tokens field was updated
+	last time.Time
+}
+
+// r, b must > 0
+func newSimpleLimiter(r float64, b int) simpleLimiter {
+	return simpleLimiter{
+		rate:     r,
+		burst:    b,
+		interval: time.Nanosecond * time.Duration(1e9/r),
+		last:     time.Now(),
+	}
+}
+
+func acquire(lim *simpleLimiter) {
+	lim.mu.Lock()
+	defer lim.mu.Unlock()
+	if lim.tokens >= 1 {
+		lim.tokens--
+		return
+	}
+	for {
+		now := time.Now()
+		elapsed := now.Sub(lim.last)
+		deltaTokens := elapsed.Seconds() * float64(lim.rate)
+		lim.tokens = lim.tokens + deltaTokens
+
+		if burst := float64(lim.burst); lim.tokens > burst {
+			lim.tokens = burst
+		}
+
+		lim.last = now
+
+		if lim.tokens >= 1 {
+			lim.tokens--
+			return
+		}
+		sleepTime := lim.interval - elapsed
+		if sleepTime < time.Millisecond {
+			// lim.burst greater, speed faster
+			sleepTime = sleepTime * time.Duration(lim.burst)
+		}
+		time.Sleep(sleepTime)
+	}
 }
 
 func init() {
@@ -113,12 +164,12 @@ func sortAndPrint() {
 	}()
 	mergeDataStreaming(&sortDataStreaming0, &sortDataStreaming1, &sortAllDataStreaming)
 
-	l := rate.NewLimiter(20, 5)
-	c, _ := context.WithCancel(context.TODO())
-	fmt.Println(l.Limit(), l.Burst())
+	limiter := newSimpleLimiter(20, 5)
+
 	var i int64 = 0
 	for {
-		l.Wait(c)
+		acquire(&limiter)
+
 		oneData := <-sortAllDataStreaming
 		i++
 		fmt.Println(i, ", commit= ", oneData.commit, oneData.sendTime)
