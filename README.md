@@ -45,18 +45,20 @@ go的sort库的sort函数，在数据量较大时（大于12时），会选使�
 
 ## 方案二   
 
-对于同一个chan的msg，msg的sendTime总是**递增的**。
-`Cx`:表示 x下标的commit类型的msg
-`Py`:表示 y下标的prepare类型的msg
-`Cx.sendTime < Py.sendTime`: 表示 x下标的commit类型的msg 比 y下标的prepare类型的msg先发送。
-`Cx.commit <= Cx.sendTime` 
-`Py.sendTime <= Cy.commit`
-可以得到`Cx.commit < Cy.commit`,即 commit消息之后接收到的prepare消息对应的commit消息的commit， 一定大于前面的commit消息。
+对于同一个chan的msg，msg的sendTime总是**递增的**。    
+- `Cx`:表示 x下标的commit类型的msg    
+- `Py`:表示 y下标的prepare类型的msg   
+- `Cx.sendTime < Py.sendTime`: 表示 x下标的commit类型的msg 比 y下标的prepare类型的msg先发送。    
+- `Cx.commit <= Cx.sendTime` 获取commit总是在该消息发送之前    
+- `Py.sendTime <= Cy.commit` 该事务的prepare消息发送之后，才会获得该事务的commit      
+- 可以得到`Cx.commit < Cy.commit`,即 commit消息之后接收到的prepare消息对应的commit消息的commit， 一定大于前面的commit消息。     
 
-举例如下
-```
+举例如下   
+
+```   
 p_1, p_3, c_1,p_2,c_2,c_3 ...
-```	
-比c_1的commit小的消息只可能是 c_3
+```	   
+
+比c_1的commit小的消息只可能是 c_3    
 
 可以利用上面特性来确定比较窗口， 不用频繁比较time类型。TODO
