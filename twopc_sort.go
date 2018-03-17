@@ -53,7 +53,7 @@ func (ds Datas) Swap(i, j int) {
 	ds[j] = temp
 }
 
-type dataBuf struct {
+type dataSlice struct {
 	beginTime time.Time
 	vector    []data
 	cur       int
@@ -101,10 +101,10 @@ func main() {
  */
 func sortAndPrint() {
 	// sorted all chan result
-	sortAllDataStreaming := make(chan data, 1)
+	sortAllDataStreaming := make(chan data, 10)
 
-	sortDataStreaming0 := make(chan data, 1)
-	sortDataStreaming1 := make(chan data, 1)
+	sortDataStreaming0 := make(chan data, 10)
+	sortDataStreaming1 := make(chan data, 10)
 	go func() {
 		sortDataStream(&dataStreaming[0], &sortDataStreaming0)
 	}()
@@ -135,29 +135,35 @@ func getCommitData(dataChan *chan data) data {
 }
 
 func sortDataStream(inputChan *chan data, sortedChan *chan data) {
-
 	oneData := getCommitData(inputChan)
-
-	databuf1 := makeAndSortDataBuf(&oneData, inputChan)
-	oneData = databuf1.nextData
-	databuf2 := makeAndSortDataBuf(&oneData, inputChan)
-	oneData = databuf2.nextData
+	dataSlice1 := makeAndSortDataSlice(&oneData, inputChan)
+	oneData = dataSlice1.nextData
+	dataSlice2 := makeAndSortDataSlice(&oneData, inputChan)
+	oneData = dataSlice2.nextData
 
 	for {
-		var minData data
-		if getMinData(&databuf1, &databuf2, &minData) {
-			*sortedChan <- minData
+		if dataSlice1.cur < len(dataSlice1.vector) {
+			if dataSlice2.cur < len(dataSlice2.vector) {
+				if dataSlice2.vector[dataSlice2.cur].commit <= dataSlice1.vector[dataSlice1.cur].commit {
+					*sortedChan <- dataSlice2.vector[dataSlice2.cur]
+					dataSlice2.cur++
+					continue
+				}
+			}
+			*sortedChan <- dataSlice1.vector[dataSlice1.cur]
+			dataSlice1.cur++
 		} else {
-			databuf1 = databuf2
-			databuf2 = makeAndSortDataBuf(&oneData, inputChan)
-			oneData = databuf2.nextData
+			// sort window move
+			dataSlice1 = dataSlice2
+			dataSlice2 = makeAndSortDataSlice(&oneData, inputChan)
+			oneData = dataSlice2.nextData
 		}
 	}
 
 }
 
-func makeAndSortDataBuf(oneData *data, dataChan *chan data) dataBuf {
-	datas := dataBuf{
+func makeAndSortDataSlice(oneData *data, dataChan *chan data) dataSlice {
+	datas := dataSlice{
 		beginTime: oneData.sendTime,
 		vector:    []data{*oneData},
 		cur:       0,
@@ -175,34 +181,17 @@ func makeAndSortDataBuf(oneData *data, dataChan *chan data) dataBuf {
 	return datas
 }
 
-func getMinData(databuf1 *dataBuf, databuf2 *dataBuf, minData *data) bool {
-	if databuf1.cur < len(databuf1.vector) {
-
-		if databuf2.cur < len(databuf2.vector) {
-			if databuf2.vector[databuf2.cur].commit <= databuf1.vector[databuf1.cur].commit {
-				*minData = databuf2.vector[databuf2.cur]
-				databuf2.cur++
-				return true
-			}
-		}
-		*minData = databuf1.vector[databuf1.cur]
-		databuf1.cur++
-		return true
-	}
-	return false
-}
-
-//TODO use struct replace chan
-func mergeDataStreaming(dataChan0 *chan data, dataChan1 *chan data, sortedDataChan *chan data) {
+//Maybe use struct replace chan
+func mergeDataStreaming(dataChan0 *chan data, dataChan1 *chan data, outputDataChan *chan data) {
 	go func() {
 		d0 := <-*dataChan0
 		d1 := <-*dataChan1
 		for {
 			if d0.commit <= d1.commit {
-				*sortedDataChan <- d0
+				*outputDataChan <- d0
 				d0 = <-*dataChan0
 			} else {
-				*sortedDataChan <- d1
+				*outputDataChan <- d1
 				d1 = <-*dataChan1
 			}
 		}
