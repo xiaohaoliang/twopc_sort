@@ -11,6 +11,8 @@ sort 函数功能定义如下
 
 # 思路
 
+`maxSleepInterval = 5`
+
 goroutine 循环逻辑
 ```
  1. generate prepare
@@ -21,13 +23,29 @@ goroutine 循环逻辑
  6. sleep 0~5 ms
  7. send commit msg to channel
  8. sleep 0~50ms --> 1
-```
+```      
+和重要注释假定      
+`assume max difference of send time between prepare and commit data is 2*maxSleepInterval(millisecond)`    
 
-分析code得到以下特征： 
-- 对于同一个channel里面的msg的sendTime总是递增的
-- sendTime大于1005ms的msg的commit 总是大于 sendTime=1000ms的msg的commit (方案一的排序窗口)
-- 对于同一个channel里面的msg：
-	commit消息之后接收到的prepare消息对应的commit消息的commit， 一定大于前面的commit消息。(方案二的排序窗口)
+得到以下特征： 
+   
+- 每条(prepare类型**不可以扩大commit类型**)消息在`2*maxSleepInterval(millisecond)`内一定会完成发送到channel。 (commit消息由于CPU调度等原因被阻塞多久,没法假定)      
+- 先读取到`Px`(prepare类型)消息，然后顺序读取若干条消息后，读取到`Py`(prepare类型)消息     
+```     
+if Py.sendTime - Px.sendTime >= 2*maxSleepInterval    
+```     
+则 `Py`之后从channel接收到的(prepare类型)消息的sendTime一定比`Px`的sendTime大 (**结论A**)-----可用于确定(prepare类型)消息sendTime的窗口    
+
+- `Px`:表示 x事务的prepare类型的msg     
+- `Cx`:表示 x事务的commit类型的msg    
+- `Py`:表示 y事务的prepare类型的msg   
+- `Cy`:表示 y事务的commit类型的msg    
+
+- `Cx.sendTime <= Px.sendTime + 2*maxSleepInterval `: 表示 x下标的prepare类型的msg 的sendTime比 x下标的commit类型的msg 的sendTime最大差值为`2*maxSleepInterval`(**注释假定**)    
+
+- `Cx.sendTime < Py.sendTime`，可以得到`Cx.commit < Cy.commit` (**结论B**)    
+- 则 `Px.sendTime + 2*maxSleepInterval < Py.sendTime`就可得到 `Cx.commit < Cy.commit` : (**结论C**)
+ 
 
 ## 关于sort
 go的sort库的sort函数，在数据量较大时（大于12时），会选使用quickSort,当分割的深度恶化时，改用heapSort，数据量小于或等于12时，使用insertSort(比递归更快)。 俺就不重新写轮子了。
@@ -36,30 +54,66 @@ go的sort库的sort函数，在数据量较大时（大于12时），会选使�
 本来使用了`golang.org/x/time/rate`的代码，令牌桶的算法，本来想直接用go的tick来构造一个简单的，但是高性能情况下性能会不好，毕竟要定时器频繁调用。     
 简单写了个`simpleLimiter`来替换原来的第三方库
 
-## 方案一 
-使用了golang的sort库和rate库
+## 方案一 （作废）
 
-- 对每个chan的输出的msg(过滤掉prepare消息)按照5ms分块
-- 块内用sort按照commit排序， 
-- 相邻两个块，归并输出(归并窗口为2个块)，当前面的块消耗完后，生成新的块，归并窗口后移，循环
-- 对每个chan排序输出的结果(chan)再归并输出为总排序结果
+##### 作废原因：由于commit类型消息无法假定在`2*maxSleepInterval`完成channel写
 
-## 方案二   
 
-对于同一个chan的msg，msg的sendTime总是**递增的**。    
 - `Cx`:表示 x下标的commit类型的msg    
 - `Py`:表示 y下标的prepare类型的msg   
-- `Cx.sendTime < Py.sendTime`: 表示 x下标的commit类型的msg 比 y下标的prepare类型的msg先发送。    
-- `Cx.commit <= Cx.sendTime` 获取commit总是在该消息发送之前    
-- `Py.sendTime <= Cy.commit` 该事务的prepare消息发送之后，才会获得该事务的commit      
-- 可以得到`Cx.commit < Cy.commit`,即 commit消息之后接收到的prepare消息对应的commit消息的commit， 一定大于前面的commit消息。     
+- `Cx.sendTime - 2*maxSleepInterval <= Px.sendTime`: 表示 x下标的prepare类型的msg 的sendTime比 x下标的commit类型的msg 的sendTime最大差值为`2*maxSleepInterval`    
+- `Px.sendTime < Cx.commit < Cx.sendTime`: 表示Cx.commit一定发生在该条msg的两个sendTime之间     
+- 由上面两条可得   
+`Cx.sendTime - 2*maxSleepInterval < Cx.commit < Cx.sendTime`    
 
-举例如下   
+- sendTime大于(1000+2*maxSleepInterval) ms的msg的commit 总是大于 sendTime=1000ms的msg的commit 
 
+- 由于上面的**结论A**， 当把时间窗口增加`2*maxSleepInterval`时，后面从channel中读取的msg的sendTime都一定比本条msg的sendTime要大(**作废: commit类型消息无法满足**)
+
+- 对每个chan的输出的msg(过滤掉prepare消息,后续可以考虑参与分块判断，加速分块)按照`2*maxSleepInterval`分块     
+    `分块内的每条msg.sendTime <= 该分块(第一个消息的sendTime+2*maxSleepInterval)`  
+	`m+3`分块内的每条msg.commit > `m`分块内的每条msg.commit  
+
+- 块内用sort按照commit排序， 
+- 相邻3个块，归并输出(归并窗口为3个块)，当最前面的块消耗完后，生成新的块，归并窗口后移，循环
+- 对每个chan排序输出的结果(chan)再归并输出为总排序结果
+
+
+## 方案二   
+   
+- 先读取到`Px`(prepare类型)消息，然后顺序读取若干条消息后，读取到`Py`(prepare类型)消息     
+```     
+if Py.sendTime - Px.sendTime >= 2*maxSleepInterval    
+```     
+则 `Py`之后从channel接收到的(prepare类型)消息的sendTime一定比`Px`的sendTime大 (**结论A**)
+
+- `Px`:表示 x事务的prepare类型的msg     
+- `Cx`:表示 x事务的commit类型的msg    
+- `Py`:表示 y事务的prepare类型的msg   
+- `Cy`:表示 y事务的commit类型的msg    
+
+- `Cx.sendTime <= Px.sendTime + 2*maxSleepInterval `: 表示 x下标的prepare类型的msg 的sendTime比 x下标的commit类型的msg 的sendTime最大差值为`2*maxSleepInterval`(**注释假定**)    
+
+- `Cx.sendTime < Py.sendTime`，可以得到`Cx.commit < Cy.commit` (**结论B**)    
+- 则 `Px.sendTime + 2*maxSleepInterval < Py.sendTime`就可得到 `Cx.commit < Cy.commit` : (**结论C**)   
+
+##### 思路1：      
+对于接收到的msg按照sendTime排序结果如下
 ```   
 p_1, p_3, c_1,p_2,c_2,c_3 ...
 ```	   
+比c_1的commit小的消息只可能是 c_3    (**结论B**)
 
-比c_1的commit小的消息只可能是 c_3    
+可以利用上面特性来确定比较窗口。按照sendTime排序，不一定比直接给commit排序来的简单。
 
-可以利用上面特性来确定比较窗口， 不用频繁比较time类型。TODO
+##### 思路2：     
+
+参考方案一，利用  (**结论A**) 和 (**结论C**), 对每个chan的输出的**prepare类型**msg按照`2*maxSleepInterval`分块：      
+1. 分块内的每条msg.sendTime <= 该分块(第一个消息的sendTime+2*maxSleepInterval)     
+2. `m+3`分块内的每条prepare消息对应的commit消息.commit > `m`分块内的每条prepare消息对应的commit消息.commit     
+3. 找到块内prepare消息对应的commit消息(这一步较为麻烦,对应的commit消息可能在很后面，虽然commit消息的sendTime符合假定)，然后执行类似**方案一**的操作
+
+没有下面这条补充假定，排序的窗口大小就没法较好的处理？
+- 每条(**commit类型**)消息在`2*maxSleepInterval(millisecond)`内一定会完成发送到channel  
+
+
