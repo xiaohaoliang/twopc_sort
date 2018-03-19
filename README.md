@@ -113,7 +113,7 @@ p_1, p_3, c_1,p_2,c_2,c_3 ...
 2. `m+3`分块内的每条prepare消息对应的commit消息.commit > `m`分块内的每条prepare消息对应的commit消息.commit     
 3. 找到块内prepare消息对应的commit消息(这一步较为麻烦,对应的commit消息可能在很后面，虽然commit消息的sendTime符合假定)，然后执行类似**方案一**的操作
 
-没有下面这条补充假定，排序的窗口大小就没法较好的处理？
-- 每条(**commit类型**)消息在`2*maxSleepInterval(millisecond)`内一定会完成发送到channel  
-
+没有下面这条补充假定，commit消息的排序的窗口大小就没法较好截断，只能通过prepare消息来完成
+- 每条(**commit类型**)消息在`2*maxSleepInterval(millisecond)`内一定会完成发送到channel  
+可以使用hashmap保存prepare和commmit的消息，  当排序窗口需要的commit消息都在haspmap中找到时，从haspmap中取出。
 
