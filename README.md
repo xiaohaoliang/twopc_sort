@@ -121,5 +121,5 @@ p_1, p_3, c_1,p_2,c_2,c_3 ...
 没有下面这条补充假定，commit消息的排序的窗口大小就没法较好截断，只能通过prepare消息来完成
 - 每条(**commit类型**)消息在`2*maxSleepInterval(millisecond)`内一定会完成发送到channel        
 
-可以使用hashmap保存prepare和对应的commmit的消息，  当排序窗口需要的commit消息都在haspmap中找到时，从haspmap中取出。
+可以使用hashmap保存prepare和对应的commmit的消息，  当排序窗口需要的commit消息都在hashmap中找到时，从hashmap中取出。
 
