@@ -109,12 +109,17 @@ p_1, p_3, c_1,p_2,c_2,c_3 ...
 ##### 思路2：     
 
 参考方案一，利用  (**结论A**) 和 (**结论C**), 对每个chan的输出的**prepare类型**msg按照`2*maxSleepInterval`分块：      
-1. 分块内的每条msg.sendTime <= 该分块(第一个消息的sendTime+2*maxSleepInterval)     
+1. 分块内(只有prepare类型)的每条msg.sendTime <= 该分块(第一个消息的sendTime+2*maxSleepInterval)     
 2. `m+3`分块内的每条prepare消息对应的commit消息.commit > `m`分块内的每条prepare消息对应的commit消息.commit     
-3. 找到块内prepare消息对应的commit消息(这一步较为麻烦,对应的commit消息可能在很后面，虽然commit消息的sendTime符合假定)，然后执行类似**方案一**的操作
+3. 找到块内prepare消息对应的commit消息(这一步较为麻烦,对应的commit消息可能在很后面，虽然commit消息的sendTime符合假定)
+
+
+- 块内用sort按照commit排序对应的commit消息， 
+- 相邻3个块，归并输出(归并窗口为3个块)，当最前面的块消耗完后，生成新的块，归并窗口后移，循环
+- 对每个chan排序输出的结果(chan)再归并输出为总排序结果
 
 没有下面这条补充假定，commit消息的排序的窗口大小就没法较好截断，只能通过prepare消息来完成
 - 每条(**commit类型**)消息在`2*maxSleepInterval(millisecond)`内一定会完成发送到channel        
 
-可以使用hashmap保存prepare和commmit的消息，  当排序窗口需要的commit消息都在haspmap中找到时，从haspmap中取出。
+可以使用hashmap保存prepare和对应的commmit的消息，  当排序窗口需要的commit消息都在haspmap中找到时，从haspmap中取出。
 
