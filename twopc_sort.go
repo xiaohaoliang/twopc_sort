@@ -160,19 +160,19 @@ func nextMsg(oneSortbuf *sortBuf, thePrepare int64) bool {
 }
 
 func readCommitData(oneSortbuf *sortBuf, thePrepare int64) data {
-	if v, ok := oneSortbuf.commits[thePrepare]; ok {
-		delete(oneSortbuf.commits, thePrepare)
-		return v
-	}
-	for {
-		if nextMsg(oneSortbuf, thePrepare) {
-			break
+
+	v, ok := oneSortbuf.commits[thePrepare]
+	if !ok {
+		for {
+			if nextMsg(oneSortbuf, thePrepare) {
+				break
+			}
 		}
+		v = oneSortbuf.commits[thePrepare]
 	}
 
-	res := oneSortbuf.commits[thePrepare]
 	delete(oneSortbuf.commits, thePrepare)
-	return res
+	return v
 }
 
 func init() {
