@@ -50,13 +50,6 @@ func (ds Datas) Swap(i, j int) {
 	ds[j] = temp
 }
 
-type dataSlice struct {
-	beginTime time.Time
-	vector    []data
-	cur       int
-	nextData  data
-}
-
 type simpleLimiter struct {
 	rate float64
 
@@ -111,6 +104,77 @@ func acquire(lim *simpleLimiter) {
 	}
 }
 
+type dataSlice struct {
+	maxSendTime time.Time
+	prepares    []int64
+	commits     []data
+	cur         int
+	isSorted    bool
+}
+
+func isOver(oneDataSlice *dataSlice) bool {
+	if oneDataSlice.cur == len(oneDataSlice.prepares) {
+		return true
+	}
+	return false
+}
+func getCommitData(oneDataSlice *dataSlice) *data {
+	return &(oneDataSlice.commits[oneDataSlice.cur])
+}
+
+type sortBuf struct {
+	srcChan  *chan data
+	bufDatas []dataSlice
+	commits  map[int64]data
+}
+
+func nextMsg(oneSortbuf *sortBuf, thePrepare int64) bool {
+	oneData := <-*oneSortbuf.srcChan
+
+	//if commit msg
+	if oneData.commit != 0 {
+		oneSortbuf.commits[oneData.prepare] = oneData
+		if oneData.prepare == thePrepare {
+			return true
+		}
+		return false
+	}
+	//insert last dataSlice or new dataSlice
+	lastDataSlice := &(oneSortbuf.bufDatas[len(oneSortbuf.bufDatas)-1])
+
+	if !lastDataSlice.maxSendTime.Before(oneData.sendTime) {
+		lastDataSlice.prepares = append(lastDataSlice.prepares, oneData.prepare)
+	} else {
+		lastDataSlice = &dataSlice{
+			maxSendTime: oneData.sendTime.Add(time.Duration(2*maxSleepInterval) * time.Millisecond),
+			prepares:    []int64{oneData.prepare},
+			cur:         0,
+			isSorted:    false,
+		}
+
+		oneSortbuf.bufDatas = append(oneSortbuf.bufDatas, *lastDataSlice)
+	}
+
+	return false
+
+}
+
+func readCommitData(oneSortbuf *sortBuf, thePrepare int64) data {
+	if v, ok := oneSortbuf.commits[thePrepare]; ok {
+		delete(oneSortbuf.commits, thePrepare)
+		return v
+	}
+	for {
+		if nextMsg(oneSortbuf, thePrepare) {
+			break
+		}
+	}
+
+	res := oneSortbuf.commits[thePrepare]
+	delete(oneSortbuf.commits, thePrepare)
+	return res
+}
+
 func init() {
 	dataStreaming = make([]chan data, clientNums)
 	for i := 0; i < clientNums; i++ {
@@ -156,6 +220,7 @@ func sortAndPrint() {
 
 	sortDataStreaming0 := make(chan data, 10)
 	sortDataStreaming1 := make(chan data, 10)
+
 	go func() {
 		sortDataStream(&dataStreaming[0], &sortDataStreaming0)
 	}()
@@ -176,60 +241,73 @@ func sortAndPrint() {
 	}
 }
 
-func getCommitData(dataChan *chan data) data {
-	for {
-		oneData := <-*dataChan
-		if oneData.commit != 0 {
-			return oneData
-		}
-	}
-}
-
 func sortDataStream(inputChan *chan data, sortedChan *chan data) {
-	oneData := getCommitData(inputChan)
-	dataSlice1 := makeAndSortDataSlice(&oneData, inputChan)
-	oneData = dataSlice1.nextData
-	dataSlice2 := makeAndSortDataSlice(&oneData, inputChan)
-	oneData = dataSlice2.nextData
+	//init
+	oneSortbuf := sortBuf{
+		srcChan: inputChan,
+		commits: make(map[int64]data),
+	}
+	firstData := <-*inputChan
+	firstDataSlice := dataSlice{
+		maxSendTime: firstData.sendTime.Add(time.Duration(2*maxSleepInterval) * time.Millisecond),
+		prepares:    []int64{firstData.prepare},
+		cur:         0,
+		isSorted:    false,
+	}
+	oneSortbuf.bufDatas = append(oneSortbuf.bufDatas, firstDataSlice)
 
 	for {
-		if dataSlice1.cur < len(dataSlice1.vector) {
-			if dataSlice2.cur < len(dataSlice2.vector) {
-				if dataSlice2.vector[dataSlice2.cur].commit <= dataSlice1.vector[dataSlice1.cur].commit {
-					*sortedChan <- dataSlice2.vector[dataSlice2.cur]
-					dataSlice2.cur++
-					continue
+		nextMsg(&oneSortbuf, 0)
+
+		if len(oneSortbuf.bufDatas) > 3 {
+
+			if isOver(&oneSortbuf.bufDatas[0]) {
+				//delete the first dataSlice
+				index := 0
+				oneSortbuf.bufDatas = append(oneSortbuf.bufDatas[:index], oneSortbuf.bufDatas[index+1:]...)
+				continue
+			}
+			// sort 3 dataSlice
+			for i := 0; i <= 2; i++ {
+				if !oneSortbuf.bufDatas[i].isSorted {
+					//get all commit msg
+					for _, onePrepare := range oneSortbuf.bufDatas[i].prepares {
+						theCommit := readCommitData(&oneSortbuf, onePrepare)
+						oneSortbuf.bufDatas[i].commits = append(oneSortbuf.bufDatas[i].commits, theCommit)
+					}
+					sort.Sort(Datas(oneSortbuf.bufDatas[i].commits))
+					oneSortbuf.bufDatas[i].isSorted = true
 				}
 			}
-			*sortedChan <- dataSlice1.vector[dataSlice1.cur]
-			dataSlice1.cur++
-		} else {
-			// sort window move
-			dataSlice1 = dataSlice2
-			dataSlice2 = makeAndSortDataSlice(&oneData, inputChan)
-			oneData = dataSlice2.nextData
+
+			// merge  output
+			//TODO: optimize  : loser tree
+			for !isOver(&oneSortbuf.bufDatas[0]) {
+
+				minIndex := 0
+
+				if !isOver(&oneSortbuf.bufDatas[1]) {
+					if getCommitData(&oneSortbuf.bufDatas[1]).commit < getCommitData(&oneSortbuf.bufDatas[minIndex]).commit {
+						minIndex = 1
+					}
+				}
+				if !isOver(&oneSortbuf.bufDatas[2]) {
+					if getCommitData(&oneSortbuf.bufDatas[2]).commit < getCommitData(&oneSortbuf.bufDatas[minIndex]).commit {
+						minIndex = 2
+					}
+				}
+
+				*sortedChan <- *getCommitData(&oneSortbuf.bufDatas[minIndex])
+				oneSortbuf.bufDatas[minIndex].cur++
+
+			}
+			//delete the first dataSlice
+			index := 0
+			oneSortbuf.bufDatas = append(oneSortbuf.bufDatas[:index], oneSortbuf.bufDatas[index+1:]...)
+
 		}
 	}
 
-}
-
-func makeAndSortDataSlice(oneData *data, dataChan *chan data) dataSlice {
-	datas := dataSlice{
-		beginTime: oneData.sendTime,
-		vector:    []data{*oneData},
-		cur:       0,
-	}
-	for {
-		d1 := getCommitData(dataChan)
-		if d1.sendTime.Sub(datas.beginTime) <= time.Duration(maxSleepInterval)*time.Millisecond {
-			datas.vector = append(datas.vector, d1)
-		} else {
-			datas.nextData = d1
-			break
-		}
-	}
-	sort.Sort(Datas(datas.vector))
-	return datas
 }
 
 //Maybe use struct replace chan
